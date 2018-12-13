@@ -2,7 +2,7 @@
   "name": "pcit/framework",
   "require": {
     "symfony/console": "^3.0 || ^4.0",
-    "symfony/http-foundation": "^4.1",
+    "symfony/http-foundation": "^4.0",
     "symfony/var-dumper": "^3.0 || ^4.0",
     "symfony/yaml": "^3.0 || ^4.0"
   }
