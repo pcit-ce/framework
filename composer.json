@@ -1,9 +1,23 @@
 {
   "name": "pcit/framework",
+  "version": "18.12.0",
+  "type": "library",
   "require": {
-    "symfony/console": "^3.0 || ^4.0",
-    "symfony/http-foundation": "^4.0",
-    "symfony/var-dumper": "^3.0 || ^4.0",
-    "symfony/yaml": "^3.0 || ^4.0"
+    "symfony/console": "^5.0",
+    "symfony/http-foundation": "^5.0",
+    "symfony/yaml": "^5.0"
+  },
+  "autoload": {
+    "psr-4": {
+      "PCIT\\Framework\\": "src/"
+    },
+    "files": [
+      "src/Support/helpers.php"
+    ]
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "PCIT\\Framework\\Tests\\": "tests/"
+    }
   }
 }
