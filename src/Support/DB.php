@@ -26,11 +26,11 @@ class DB
     public static function connection()
     {
         if (!(self::$pdo instanceof PDO)) {
-            $mysql_host = env('CI_MYSQL_HOST', 'mysql');
-            $mysql_port = env('CI_MYSQL_PORT', 3306);
-            $mysql_username = env('CI_MYSQL_USERNAME', 'root');
-            $mysql_password = env('CI_MYSQL_PASSWORD', 'test');
-            $mysql_dbname = env('CI_MYSQL_DATABASE', 'test');
+            $mysql_host = config('database.connections.mysql.host');
+            $mysql_port = config('database.connections.mysql.port');
+            $mysql_username = config('database.connections.mysql.username');
+            $mysql_password = config('database.connections.mysql.password');
+            $mysql_dbname = config('database.connections.mysql.database');
 
             $dsn = 'mysql:host='.$mysql_host.';port='.$mysql_port.';dbname='.$mysql_dbname;
 
@@ -56,7 +56,7 @@ class DB
                 }
 
                 if (2002 === $e->getCode()) {
-                    die('DB_Error: Can\'t connect DB Server'.PHP_EOL);
+                    die('DB_Error: Can\'t connect DB Server'."\n");
                 }
 
                 throw new Exception('Can\'t connect mysql server, error message is '.$e->getMessage().'. error code '.$e->getCode(), 500);
