@@ -7,24 +7,26 @@ namespace PCIT\Framework\Foundation;
 use PCIT\Framework\Dotenv\Dotenv;
 use PCIT\Framework\Support\Env;
 use Pimple\Container;
+use Pimple\Exception\UnknownIdentifierException;
 
 class Application extends Container
 {
     public static $instance;
 
-    public $basePath;
+    public string $basePath;
 
-    public $serviceProviders;
+    /** @var string[] */
+    public array $serviceProviders;
 
-    public $environment;
+    public ?string $environment = null;
 
-    public $environmentPath;
+    public ?string $environmentPath = null;
 
-    public $environmentFile;
+    public ?string $environmentFile = null;
 
-    public $resolve = [];
+    public array $resolve = [];
 
-    public $resolves = [];
+    public array $resolves = [];
 
     /**
      * @var bool
@@ -36,7 +38,7 @@ class Application extends Container
      *
      * 传入 env, 判断是否与当前环境匹配
      *
-     * @param string|array|null $env
+     * @param null|array|string $env
      *
      * @return false|string
      */
@@ -62,7 +64,7 @@ class Application extends Container
         $env_file = Dotenv::load($app_env);
 
         $this->environmentFile = $env_file;
-        $this->environmentPath = $this->basePath.\DIRECTORY_SEPARATOR.$this->environmentFile;
+        $this->environmentPath = $this->basePath($this->environmentFile);
         $this->environment = config('app.env');
     }
 
@@ -84,6 +86,13 @@ class Application extends Container
         $this->isDebug = (bool) config('app.debug');
     }
 
+    public function basePath(?string $path = ''): string
+    {
+        $path = null === $path ? '' : $path;
+
+        return $this['base_path'].\DIRECTORY_SEPARATOR.$path;
+    }
+
     public function registerProviders(): void
     {
         $this->serviceProviders = config('app.providers');
@@ -100,6 +109,11 @@ class Application extends Container
     }
 
     // 绑定单例
+    // 每次返回同一实例
+
+    /**
+     * @param null|\Closure|string $concrete
+     */
     public function singleton(string $abstract, $concrete = null): void
     {
         if (null === $concrete) {
@@ -108,7 +122,7 @@ class Application extends Container
 
         $closure = $concrete;
 
-        if (\is_string($concrete)) {
+        if (!($closure instanceof \Closure)) {
             $closure = function ($app) use ($concrete) {
                 return new $concrete();
             };
@@ -118,7 +132,12 @@ class Application extends Container
     }
 
     // 简单绑定
-    public function bind(string $abstract, $concrete): void
+    // 每次返回全新的实例
+
+    /**
+     * @param null|\Closure|string $concrete
+     */
+    public function bind(string $abstract, $concrete = null): void
     {
         if (null === $concrete) {
             $concrete = $abstract;
@@ -126,7 +145,7 @@ class Application extends Container
 
         $closure = $concrete;
 
-        if (\is_string($concrete)) {
+        if (!($closure instanceof \Closure)) {
             $closure = function ($app) use ($concrete) {
                 return new $concrete();
             };
@@ -138,7 +157,7 @@ class Application extends Container
     // 绑定实例
     public function instance($abstract, $instance): void
     {
-        if (\is_string($instance)) {
+        if (\is_string($instance) and class_exists($instance)) {
             $instance = new $instance();
         }
 
@@ -179,5 +198,14 @@ class Application extends Container
         }
 
         return parent::offsetGet($id);
+    }
+
+    public function __get(string $name)
+    {
+        if (isset($this[$name])) {
+            return $this[$name];
+        }
+
+        throw new UnknownIdentifierException($name);
     }
 }

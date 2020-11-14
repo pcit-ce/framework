@@ -9,35 +9,9 @@ use Firebase\JWT\JWT as JWTService;
 class JWT
 {
     /**
-     * GitHub App 由 JWT expire 10m 获取 Token expire 60m.
-     *
-     * @return string
-     *
-     * @see https://developer.github.com/apps/building-github-apps/authentication-options-for-github-apps/#authenticating-as-a-github-app
-     */
-    public static function getJWT(string $private_key_path, int $iss)
-    {
-        $privateKey = file_get_contents($private_key_path);
-
-        $token = [
-            'iss' => $iss,
-            'iat' => time(),
-            'exp' => time() + 10 * 60,
-        ];
-
-        $jwt = JWTService::encode($token, $privateKey, 'RS256');
-
-        return $jwt;
-    }
-
-    /**
      * PCIT 加密 token.
-     *
-     * @param int $exp
-     *
-     * @return string
      */
-    public static function encode(string $privateKey, string $git_type, string $username, int $uid, int $exp = null)
+    public static function encode(string $privateKey, string $git_type, string $username, int $uid, int $exp = null): string
     {
         $privateKey = file_get_contents($privateKey);
 
@@ -59,14 +33,12 @@ class JWT
     /**
      * 解密 token.
      *
+     * @param resource $publicKey returned by openssl_get_publickey()
+     *
      * @return object
      */
-    public static function decode(string $jwt, string $publicKey)
+    public static function decode(string $jwt, $publicKey)
     {
-        $publicKey = file_get_contents($publicKey);
-
-        $obj = JWTService::decode($jwt, $publicKey, ['RS256']);
-
-        return $obj;
+        return JWTService::decode($jwt, $publicKey, ['RS256']);
     }
 }

@@ -6,17 +6,19 @@ namespace PCIT\Framework\Routing;
 
 use Closure;
 use Exception;
-use PCIT\Framework\Foundation\Http\SuccessException;
-use PCIT\Support\Git;
+use PCIT\Framework\Http\Request;
+use PCIT\Framework\Routing\Exceptions\SkipThisRouteException;
+use PCIT\Framework\Routing\Exceptions\SuccessHandleRouteException;
+use PCIT\GPI\Support\Git;
 use Throwable;
 
 /**
- * @method get(string $url, Closure|string $action)
- * @method post(string $url, Closure|string $action)
- * @method put(string $url, Closure|string $action)
- * @method patch(string $url, Closure|string $action)
- * @method delete(string $url, Closure|string $action)
- * @method options(string $url, Closure|string $action)
+ * @method void get(string $url, array|callable|string $action)
+ * @method void post(string $url, array|callable|string $action)
+ * @method void put(string $url, array|callable|string $action)
+ * @method void patch(string $url, array|callable|string $action)
+ * @method void delete(string $url, array|callable|string $action)
+ * @method void options(string $url, array|callable|string $action)
  */
 class Router
 {
@@ -24,29 +26,39 @@ class Router
 
     public $method = [];
 
-    public $output = null;
+    public $response;
 
     /**
-     * @param string|Closure $action
-     * @param mixed          ...$arg
-     *
-     * @throws \Exception
+     * @param array|callable|string $action e.g.
+     *                                      'Controller@method'
+     *                                      [\App\Http\Controllers\Controller::class,'method']
+     *                                      fn() => 1
+     * @param mixed                 ...$arg e.g. 'user/{id}' => 'user/1' => result [1]
      */
     private function make($action, ...$arg): void
     {
         if ($action instanceof Closure) {
+            // 闭包
             $arg = $this->getParameters(null, $action, $arg);
-            $this->output = \call_user_func($action, ...$arg);
+            $this->matchVersion(null, $action);
+            $this->response = \call_user_func_array($action, $arg);
 
-            throw new SuccessException();
+            throw new SuccessHandleRouteException();
         }
 
-        $array = explode('@', $action);
+        if (\is_array($action)) {
+            $array = $action;
 
-        $obj = 'App\\Http\\Controllers'.'\\'.$array[0];
+            $obj = $array[0];
+        } else {
+            $array = explode('@', $action);
 
+            $obj = 'App\\Http\\Controllers'.'\\'.$array[0];
+        }
         // 没有 @ 说明是 __invoke() 方法
         $method = $array[1] ?? '__invoke';
+
+        $action = $obj.'@'.$method;
 
         if (!class_exists($obj)) {
             // 类不存在，返回
@@ -56,64 +68,136 @@ class Router
             return;
         }
 
-        // 获取方法参数
-        $args = $this->getParameters($obj, $method, $arg);
+        $this->matchVersion($obj, $method);
+        $rc = new \ReflectionClass($obj);
+
         // 获取类构造函数参数
-        $construct_args = $this->getParameters($obj, '__construct');
+        $construct_args = $this->getParameters($rc->getName());
 
         // var_dump($args);
         // var_dump($construct_args);
 
-        $instance = new $obj(...$construct_args);
+        // 构造函数
+        $instance = $rc->newInstanceArgs($construct_args);
 
         try {
-            $response = '__invoke' === $method ?
-                $instance(...$args) : $instance->$method(...$args);
+            if ($rc->hasMethod($method)) {
+                $rm = new \ReflectionMethod($instance, $method);
 
-            $this->output = $response;
+                // 获取方法参数
+                $args = $this->getParameters($rc->getName(), $rm->getName(), $arg);
+
+                $this->response = $rm->invokeArgs($instance, $args);
+            } elseif ($rc->hasMethod('__call')) {
+                // 方法不存在，尝试调用 __call
+                $rm = new \ReflectionMethod($instance, '__call');
+
+                $this->response = $rm->invokeArgs($instance, [
+                    $method, $arg,
+                ]);
+            } else {
+                // 方法 以及 __call 方法均不存在
+                throw new \Exception('Controller '.$action.'not Found', 404);
+            }
+        } catch (\ReflectionException $e) {
+            throw new Exception($e->getMessage(), 404, $e);
+        } catch (SuccessHandleRouteException $e) {
+            // 请求成功
+            throw $e;
         } catch (\Throwable $e) {
-            // 捕获类方法不存在错误
-            $code = $e->getCode();
-
-            0 === $code && $code = 500;
-
-            throw new Exception($e->getMessage(), $code, $e);
+            // 捕获异常
+            throw $e;
         }
 
         // 处理完毕，退出
-        throw new SuccessException();
+        throw new SuccessHandleRouteException();
     }
 
     /**
-     * 获取方法参数列表.
+     * @param \ReflectionFunction|\ReflectionMethod $reflection
      */
-    private function getParameters($obj = null, $method = null, $arg = [])
+    private function isDeprecated($reflection): void
     {
-        try {
-            $reflection = $obj ?
-                new \ReflectionMethod($obj, $method) : new \ReflectionFunction($method);
-        } catch (Throwable $e) {
-            return [];
-        }
-
-        // 获取方法的参数列表
-        $method_parameters = $reflection->getParameters();
-
-        // var_dump($method_parameters);
-
         // 是否废弃
         if ($reflection->isDeprecated()) {
             echo '已废弃';
         }
 
+        $attrs = $reflection->getAttributes();
+
+        foreach ($attrs as $attr) {
+            if (\PCIT\Framework\Attributes\Deprecated::class === $attr->getName()) {
+                throw new \Exception('deprecated by attributes', 403);
+            }
+        }
+
         // 通过检查注释，查看是否被废弃.
         if ($reflection->getDocComment()) {
             if (strpos($reflection->getDocComment(), '@deprecated')) {
-                $this->obj[] = $obj;
-                $this->method[] = $method;
-                throw new Exception("$obj::$method is deprecated", 500);
+                //$this->obj[] = $reflection->getDeclaringClass();
+                //$this->method[] = $reflection->getName();
+
+                throw new Exception('deprecated by phpdoc', 403);
             }
         }
+    }
+
+    /**
+     * @param \ReflectionFunction|\ReflectionMethod $reflection
+     */
+    public function handleMiddleware($reflection): void
+    {
+        $attrs = $reflection->getAttributes();
+
+        foreach ($attrs as $attr) {
+            // var_dump($attr->getName());
+            // continue;
+            if (\PCIT\Framework\Attributes\Middleware::class === $attr->getName()) {
+                $result = $attr->newInstance()
+                    ->middleware->handle(
+                        app(Request::class),
+                        function (Request $request) {
+                            return $request;
+                        },
+                        null
+                    );
+
+                if ($result instanceof Request) {
+                    return;
+                }
+
+                $this->response = $result;
+
+                throw new SuccessHandleRouteException();
+            }
+        }
+    }
+
+    /**
+     * 获取方法参数列表.
+     *
+     * @param null|mixed|object   $obj
+     * @param null|Closure|string $method
+     * @param mixed               $arg
+     */
+    public function getParameters($obj = null, $method = null, $arg = []): array
+    {
+        try {
+            $reflection = $obj ?
+                new \ReflectionMethod($obj, $method ?? '__construct') : new \ReflectionFunction($method);
+        } catch (Throwable $e) {
+            return [];
+        }
+
+        // 是否废弃
+        $this->isDeprecated($reflection);
+
+        $this->handleMiddleware($reflection);
+
+        // 获取方法的参数列表
+        $method_parameters = $reflection->getParameters();
+
+        // var_dump($method_parameters);
 
         $args = [];
 
@@ -122,7 +206,7 @@ class Router
             // 获取参数类型
             $parameter_class = null;
 
-            if ($parameter->getType()) {
+            if ($parameter->hasType()) {
                 $parameter_class = $parameter->getType()->getName();
             }
 
@@ -133,16 +217,21 @@ class Router
                 break;
             }
 
-            if ($parameter_class and class_exists($parameter_class)) {
+            if ($parameter_class and !$parameter->getType()->isBuiltin()) {
+                // 不是内置类
                 try {
+                    // 首先尝试从容器中解析
                     $args[$key] = app($parameter_class);
                 } catch (Throwable $e) {
+                    // 未注入到容器中
                     // 参数提示为类，获取构造函数参数
-                    $construct_args = $this->getParameters($parameter_class, '__construct');
-                    $args[$key] = new $parameter_class(...$construct_args);
+                    $construct_args = $this->getParameters($parameter_class);
+                    $args[$key] = (new \ReflectionClass($parameter_class))
+                        ->newInstanceArgs($construct_args);
                 }
             } else {
                 // 参数类型不是类型实例
+                // 参数类型是内置类型
                 $args[$key] = array_shift($arg);
             }
         }
@@ -150,20 +239,79 @@ class Router
         return $args;
     }
 
+    public function matchVersion($obj, $method): void
+    {
+        $reflection = $obj ?
+            new \ReflectionMethod($obj, $method ?? '__construct') : new \ReflectionFunction($method);
+
+        $attrs = $reflection->getAttributes();
+
+        $accept = \Request::headers()->get('Accept');
+
+        if (!$accept) {
+            return;
+        }
+
+        $attrExists = false;
+        $versionHeader = false;
+
+        foreach ($attrs as $attr) {
+            if (\PCIT\Framework\Attributes\APIVersion::class === $attr->getName()) {
+                $attrExists = true;
+
+                foreach (explode(',', $accept) as $item) {
+                    if (preg_match('/^(application\/vnd.pcit.v).*.(\+json$)/', $item)) {
+                        $versionHeader = true;
+                    }
+                    if (
+                        'application/vnd.pcit.'.$attr->getArguments()[0].'+json'
+                        === $item
+                    ) {
+                        // 版本匹配
+                        return;
+                    }
+                }
+            }
+        }
+
+        if (!$attrExists) {
+            return;
+        }
+
+        if ($attrExists and $versionHeader) {
+            throw new SkipThisRouteException();
+        }
+
+        if (!$versionHeader) {
+        }
+
+        // 版本属性
+        // 版本请求头
+
+        // attr + header    next
+        // !attr + header   skip
+        // !attr + !header  skip
+        // attr + !header
+    }
+
     /**
-     * @param $targetUrl route 定义的 URL
-     * @param $action
-     *
-     * @throws \Exception
+     * @param string                $targetUrl route 定义的 URL
+     * @param array|\Closure|string $action
      */
-    private function handle($targetUrl, $action): void
+    private function handle(string $targetUrl, $action): void
     {
         // ?a=1&b=2
         // $queryString = $_SERVER['QUERY_STRING'];
-        $queryString = app('request')->query->all();
+        /** @var \PCIT\Framework\Http\Request */
+        $request = app('request');
+        $queryString = $request->query->all();
 
         //$url = $_SERVER['REQUEST_URI'];
-        $url = app('request')->getPathInfo();
+        $url = $request->getPathInfo();
+
+        // if(explode('/',$url)[1] === 'api'){
+        //     $targetUrl = 'api/'.$targetUrl;
+        // }
 
         if ((bool) $queryString) {
             // 使用 ? 分隔 url
@@ -180,7 +328,7 @@ class Router
         $array = [];
 
         if ([] === $offset) {
-            if ($targetUrl === $url) {// 传统 url
+            if ($targetUrl === $url) { // 传统 url
                 $this->make($action);
             } else {
                 return;
@@ -200,8 +348,7 @@ class Router
                 }
 
                 foreach ($kArray as $k) {
-                    unset($targetUrlArray[$k]);
-                    unset($urlArray[$k]);
+                    unset($targetUrlArray[$k], $urlArray[$k]);
                 }
 
                 $targetUrlArray === $urlArray && $this->make($action, ...$array);
@@ -218,38 +365,40 @@ class Router
     }
 
     /**
-     * @param $name
-     * @param $arg
-     *
-     * @throws \Exception
+     * @param string $name e.g. get
+     * @param array  $arg  e.g. 'path/{id}' 'Controller@method'
      */
-    public function __call($name, $arg): void
+    public function __call(string $name, array $arg): void
     {
-        if ('match' === $name) {
-            $methods = $arg[0];
+        try {
+            if ('match' === $name) {
+                $methods = $arg[0];
 
-            array_shift($arg);
+                array_shift($arg);
 
-            if (\is_string($methods)) {
+                if (\is_string($methods)) {
+                    return;
+                }
+
+                foreach ($methods as $key) {
+                    if ($this->checkMethod($key)) {
+                        $this->handle(...$arg);
+
+                        return;
+                    }
+                }
+
                 return;
             }
 
-            foreach ($methods as $key) {
-                if ($this->checkMethod($key)) {
-                    $this->handle(...$arg);
-
-                    return;
-                }
+            if ('any' !== $name && !$this->checkMethod($name)) {
+                return;
             }
 
+            $this->handle(...$arg);
+        } catch (SkipThisRouteException $e) {
             return;
         }
-
-        if ('any' !== $name && !$this->checkMethod($name)) {
-            return;
-        }
-
-        $this->handle(...$arg);
     }
 
     public function __get($name)
@@ -267,8 +416,8 @@ class Router
         return $this->obj;
     }
 
-    public function getOutput()
+    public function getResponse()
     {
-        return $this->output;
+        return $this->response;
     }
 }

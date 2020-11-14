@@ -38,7 +38,7 @@ if (!function_exists('config')) {
 
         array_shift($array);
 
-        $config = require base_path().'framework/config/'.$file.'.php';
+        $config = require base_path('framework/config/'.$file.'.php');
 
         foreach ($array as $key) {
             $config = $config[$key];
@@ -49,24 +49,22 @@ if (!function_exists('config')) {
 }
 
 if (!function_exists('base_path')) {
-    function base_path()
+    function base_path(string $path = '')
     {
-        return app('base_path').DIRECTORY_SEPARATOR;
+        return app()->basePath($path);
     }
 }
 
 if (!function_exists('view')) {
     function view($path): void
     {
-        include base_path().'public/'.$path;
+        include base_path('public/'.$path);
 
         exit;
     }
 }
 
-/*
- * https://github.com/igorw/retry
- */
+// https://github.com/igorw/retry
 if (!function_exists('retry')) {
     function retry(int $retries, callable $fn)
     {
@@ -80,5 +78,12 @@ if (!function_exists('retry')) {
             --$retries;
             goto beginning;
         }
+    }
+}
+
+if (!function_exists('xdebug_is_enabled')) {
+    function xdebug_is_enabled(): bool
+    {
+        return true;
     }
 }

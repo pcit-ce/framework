@@ -10,7 +10,7 @@ use Redis;
 
 class RedisStore implements Store
 {
-    private $redis;
+    public Redis $redis;
 
     public function __construct(Redis $redis)
     {
@@ -28,5 +28,12 @@ class RedisStore implements Store
     public function __call($method, $arguments)
     {
         return $this->redis->$method(...$arguments);
+    }
+
+    public function copyListKey($source, $target): string
+    {
+        \Cache::restore($target, 0, \Cache::dump($source));
+
+        return $target;
     }
 }

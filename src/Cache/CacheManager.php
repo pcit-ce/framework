@@ -13,11 +13,11 @@ class CacheManager implements Factory
 
     /**
      * @return \PCIT\Framework\Contracts\Cache\Repository
-     *
-     * @throws \Exception
      */
-    public function store($name = 'redis')
+    public function store(?string $name = null)
     {
+        $name = $name ?: config('cache.default');
+
         if ($store = $this->stores[$name] ?? false) {
             return $store;
         }

@@ -4,10 +4,16 @@ declare(strict_types=1);
 
 namespace PCIT\Framework\Http;
 
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\HeaderUtils;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Response as BaseResponse;
 use Symfony\Component\HttpFoundation\ResponseHeaderBag;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
+/**
+ * @method ResponseHeaderBag headers()
+ */
 class Response extends BaseResponse
 {
     const HTTP_CODE = [
@@ -34,18 +40,14 @@ class Response extends BaseResponse
     {
         $status = \in_array($status, self::HTTP_CODE) ? $status : 500;
 
-        $response = app()->make('response')->setContent($content)
-        ->setStatusCode($status)->setHeaders($headers);
-
-        return $response;
+        return app()->make('response')->setContent($content)
+            ->setStatusCode($status)->setHeaders($headers);
     }
 
     /**
      * @param array|string $content
-     *
-     * @return false|string
      */
-    public function json($content, $json = false)
+    public function json($content, bool $json = false): BaseResponse
     {
         if (\defined('PCIT_START')) {
             $time = microtime(true) - PCIT_START;
@@ -57,7 +59,19 @@ class Response extends BaseResponse
             unset($content['code']);
         }
 
-        return new JsonResponse($content, $code ?? 200, ['X-Runtime-rack' => $time], $json);
+        $this->setHeaders(['X-Runtime-rack' => $time]);
+
+        return new JsonResponse(
+            $content,
+            $code ?? 200,
+            $this->headers()->all(),
+            $json
+        );
+    }
+
+    public function noContent($status = 204, array $headers = [])
+    {
+        return $this->make('', $status, $headers);
     }
 
     public function redirect(string $url): void
@@ -71,9 +85,44 @@ class Response extends BaseResponse
      */
     public function setHeaders(array $headers = [])
     {
-        $response = app('response');
-        $response->headers = new ResponseHeaderBag($headers);
+        $this->headers->add($headers);
+
+        return $this;
+    }
+
+    public function stream(\Closure $callback, int $status = 200, array $headers = [])
+    {
+        return new StreamedResponse($callback, $status, $headers);
+    }
+
+    public function __call(string $method, array $args)
+    {
+        return $this->$method;
+    }
+
+    /**
+     * @param \SplFileInfo|string $file
+     */
+    public function download(
+        $file,
+        ?string $name = null,
+        array $headers = [],
+        string $disposition = HeaderUtils::DISPOSITION_ATTACHMENT
+    ): BinaryFileResponse {
+        $response = new BinaryFileResponse($file, 200, $headers, true, $disposition);
+
+        if (null !== $name) {
+            return $response->setContentDisposition($disposition, $name);
+        }
 
         return $response;
+    }
+
+    /**
+     * @param \SplFileInfo|string $file
+     */
+    public function file($file, array $headers = []): BinaryFileResponse
+    {
+        return new BinaryFileResponse($file, 200, $headers);
     }
 }

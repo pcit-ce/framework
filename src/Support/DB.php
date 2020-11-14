@@ -20,8 +20,6 @@ class DB
 
     /**
      * @return PDO
-     *
-     * @throws \Exception
      */
     public static function connection()
     {
@@ -44,22 +42,34 @@ class DB
                     // 当数据库不存在时，尝试新建数据库
                     try {
                         $dsn = sprintf(
-                            'mysql:host=%s;port=%s;dbname=%s', $mysql_host, $mysql_port, 'mysql');
+                            'mysql:host=%s;port=%s;dbname=%s',
+                            $mysql_host,
+                            $mysql_port,
+                            'mysql'
+                        );
                         $pdo = new PDO($dsn, $mysql_username, $mysql_password);
 
                         $pdo->exec('create database '.$mysql_dbname);
 
                         return self::connection();
                     } catch (PDOException $e) {
-                        throw new Exception('Can\'t connect mysql server, error message is '.$e->getMessage().'. error code '.$e->getCode(), 500);
+                        if (\PHP_SAPI === 'cli') {
+                            die('[error] [PCIT] database not exists');
+                        }
+
+                        throw new Exception('database not exists', 500);
                     }
                 }
 
+                $errorCode = 500;
+
                 if (2002 === $e->getCode()) {
-                    die('DB_Error: Can\'t connect DB Server'."\n");
+                    if (\PHP_SAPI === 'cli') {
+                        die('[error] PCIT can\'t connect DB Server'."\n");
+                    }
                 }
 
-                throw new Exception('Can\'t connect mysql server, error message is '.$e->getMessage().'. error code '.$e->getCode(), 500);
+                throw new Exception('PCIT can\'t connect mysql server, error message is '.$e->getMessage().'. error code '.$e->getCode(), $errorCode);
             }
         }
 
@@ -77,8 +87,6 @@ class DB
      * @param array $data
      *
      * @return array|string
-     *
-     * @throws \Exception
      */
     public static function select(string $sql, ?array $data, bool $single = false)
     {
@@ -92,7 +100,7 @@ class DB
             $result = $stmt->fetchAll();
             // $stmt->closeCursor();
         } catch (PDOException $e) {
-            throw new Exception($e->getMessage(), 500);
+            throw new Exception($e->getMessage().self::getDebugInfo(), 500);
         }
 
         if ($single) {
@@ -112,8 +120,6 @@ class DB
      * 执行原生 INSERT 语句.
      *
      * @return int
-     *
-     * @throws \Exception
      */
     public static function insert(string $sql, array $data = [])
     {
@@ -125,7 +131,7 @@ class DB
             self::setDebugInfo($stmt);
             $last = (int) $pdo->lastInsertId();
         } catch (PDOException $e) {
-            throw new Exception($e->getMessage(), 500);
+            throw new Exception($e->getMessage().self::getDebugInfo(), 500);
         }
 
         return $last;
@@ -135,8 +141,6 @@ class DB
      * 执行原生 UPDATE 语句.
      *
      * @return int 返回受影响的记录条数
-     *
-     * @throws \Exception
      */
     public static function update(string $sql, array $data = [])
     {
@@ -147,8 +151,6 @@ class DB
      * 执行原生 DELETE 语句.
      *
      * @return int
-     *
-     * @throws \Exception
      */
     public static function delete(string $sql, array $data = [])
     {
@@ -157,8 +159,6 @@ class DB
 
     /**
      * @return int
-     *
-     * @throws \Exception
      */
     private static function common(string $sql, array $data = [])
     {
@@ -170,7 +170,7 @@ class DB
             self::setDebugInfo($stmt);
             $count = $stmt->rowCount();
         } catch (PDOException $e) {
-            throw new Exception($e->getMessage(), 500);
+            throw new Exception($e->getMessage().self::getDebugInfo(), 500);
         }
 
         return $count;
@@ -180,17 +180,12 @@ class DB
      * 执行普通语句.
      *
      * @return int
-     *
-     * @throws \Exception
      */
     public static function statement(string $sql)
     {
         return self::connection()->exec($sql);
     }
 
-    /**
-     * @throws \Exception
-     */
     public static function beginTransaction(): void
     {
         try {
@@ -200,9 +195,6 @@ class DB
         }
     }
 
-    /**
-     * @throws \Exception
-     */
     public static function transaction(Closure $callback): void
     {
         self::beginTransaction();
@@ -210,9 +202,6 @@ class DB
         self::commit();
     }
 
-    /**
-     * @throws \Exception
-     */
     public static function commit(): void
     {
         try {
@@ -222,9 +211,6 @@ class DB
         }
     }
 
-    /**
-     * @throws \Exception
-     */
     public static function rollback(): void
     {
         self::connection()->rollBack();
@@ -252,8 +238,6 @@ class DB
 
     /**
      * @return PDO
-     *
-     * @throws \Exception
      */
     public static function getPdo()
     {

@@ -22,8 +22,6 @@ class HttpClient
 
     /**
      * @return mixed
-     *
-     * @throws \Exception
      */
     public static function post(string $url, string $data = null, array $header = [])
     {
@@ -38,7 +36,7 @@ class HttpClient
     {
         if (!(self::$curl instanceof Curl)) {
             self::$curl = new Curl();
-            self::$curl->setTimeout(5);
+            self::$curl->setTimeout(20);
         }
 
         return self::$curl;
@@ -53,8 +51,6 @@ class HttpClient
      * @param int $timeout
      *
      * @return mixed
-     *
-     * @throws \Exception
      */
     public static function get(string $url, string $data = null, array $header = [], $timeout = 5)
     {
@@ -70,8 +66,6 @@ class HttpClient
 
     /**
      * @return mixed
-     *
-     * @throws \Exception
      */
     public static function delete(string $url, array $header = [])
     {
